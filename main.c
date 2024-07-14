@@ -1,5 +1,5 @@
 /*
- * Project: Iotis coding challenge
+ * Project: ESP32_Multitasking challenge
  * File: main.c
  * Description:
  *   This project demonstrates the creation of two FreeRTOS tasks running on different cores
@@ -63,7 +63,6 @@ void computeMaxMinAvg(int64_t raw_buffer[BUFFER_SIZE]){
     int64_t min = raw_buffer[0], max = raw_buffer[0], sum = 0;
     double avg;
     for(int i = 0; i < BUFFER_SIZE; i++){
-        printf("Buffer %d: %lld\n", i, raw_buffer[i]);
         if (max < raw_buffer[i])
             max = raw_buffer[i];
         if (min > raw_buffer[i])
@@ -98,9 +97,7 @@ void vTask1(void* pvParameters){
         }
         if (i == BUFFER_SIZE)
             i = 0; // The buffer is implemented as circular, so it gets overwritten if 1s hasn't elapsed yet
-        printf("elapsed time: %lld    i: %d\n", current_time - start_time_1s, i);
         buffer[i++] = current_time - last_time;
-        printf("Buffer %d: %lld\n", i-1 , buffer[i-1]);
         if (current_time - start_time_1s >= ONE_SECOND_IN_US){ // Check if 1s has elapsed
             xQueueSend(queue, &buffer, 0); // A queue copies all the element, so to save data, I'll just send the address of the buffer
             reset_1s_clock = true;
