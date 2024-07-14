@@ -112,7 +112,7 @@ void vTask1(void* pvParameters){
 void vTask2(void* pvParameters){
     int64_t received_buffer[BUFFER_SIZE];
     while(1){
-        if (xQueueReceive(queue, received_buffer, portMAX_DELAY) == pdTRUE){
+        if (xQueueReceive(queue, received_buffer, 0) == pdTRUE){
             computeMaxMinAvg(received_buffer);
         }
     }
