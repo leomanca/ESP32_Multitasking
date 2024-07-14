@@ -1,5 +1,5 @@
 /*
- * Project: ESP32_Multitasking challenge
+ * Project: ESP32_Multitasking
  * File: main.c
  * Description:
  *   This project demonstrates the creation of two FreeRTOS tasks running on different cores
@@ -38,6 +38,11 @@
  *   Thus, the buffer has been implemented circular so compensate this overflowing problem.
  *   Should delays happen, the recorded intervals will be less and the buffer will not "overflow".
  * 
+ *   Timers: 
+ *      last_time: records the elapsed time from the previous cycle
+ *      current_time: records the time at the start of the current cycle
+ *      start_time_1s: tracks if 1s has passed, so that the queue can be filled
+ * 
  * Author: Leonardo Manca
  * Date: 14.07.2024
  * Version: 1.0
@@ -56,7 +61,6 @@
 #define BUFFER_SIZE 100
 #define ONE_SECOND_IN_US 1000000
 
-
 QueueHandle_t queue;
 
 void computeMaxMinAvg(int64_t raw_buffer[BUFFER_SIZE]){
@@ -70,25 +74,16 @@ void computeMaxMinAvg(int64_t raw_buffer[BUFFER_SIZE]){
         sum += raw_buffer[i];
     }
     avg = (double)sum / BUFFER_SIZE;
-    printf("max: %lld    min: %lld    avg: %.2f\n", max, min, avg);
+    printf("max: %lld us    min: %lld us   avg: %.2f us\n", max, min, avg);
 }
 
 void vTask1(void* pvParameters){
-
-    // Timers: 
-    // last_time: records the elapsed time from the previous cycle
-    // current_time: records the time at the start of the current cycle
-    // start_time_1s: tracks if 1s has passed, so that the queue can be filled
     int64_t current_time, last_time, start_time_1s;
     int64_t buffer[BUFFER_SIZE] = {0};
     uint8_t i = 0;
     bool reset_1s_clock = true;
-    // Small for loop for startup purposes (Wi-Fi, Bluetooth module setup), waits 90ms before getting a last_time
-    // that will be used for computational purposes
-    for (int j = 0; j < TASK1_TICKS; j++){
-        last_time = esp_timer_get_time();
-        vTaskDelay(TASK1_TICKS / portTICK_PERIOD_MS);
-    }
+    last_time = esp_timer_get_time(); // Records last_time to use it for computational purposes
+    vTaskDelay(TASK1_TICKS / portTICK_PERIOD_MS); // startup time as we need to record at least one last_time
     while(1){
         current_time = esp_timer_get_time();
         if (reset_1s_clock == true){
@@ -112,7 +107,7 @@ void vTask1(void* pvParameters){
 void vTask2(void* pvParameters){
     int64_t received_buffer[BUFFER_SIZE];
     while(1){
-        if (xQueueReceive(queue, received_buffer, 0) == pdTRUE){
+        if (xQueueReceive(queue, received_buffer, portMAX_DELAY) == pdTRUE){ // Using portMAX_DELAY blocks the task's execution, making it not blocking CPU time
             computeMaxMinAvg(received_buffer);
         }
     }
@@ -122,24 +117,18 @@ void vTask2(void* pvParameters){
 
 void app_main(void)
 {
-    BaseType_t result;
-
+    vTaskDelay(1000 / portTICK_PERIOD_MS); // startup time (Wi-Fi, Bluetooth module...)
     queue = xQueueCreate(1, sizeof(int64_t)*BUFFER_SIZE); // Create the queue
     if (queue == NULL){
         printf("Error creating the queue");
         return;
     }
-
-    result = xTaskCreatePinnedToCore(vTask1, "Task1", STACK_DEPTH, NULL, 1, NULL, 0); // Create Task 1
-    if (result != pdPASS){
+    if (xTaskCreatePinnedToCore(vTask1, "Task1", STACK_DEPTH, NULL, 5, NULL, 0) != pdPASS){
         printf("Task1 not created");
         return;
     }
-      
-    result = xTaskCreatePinnedToCore(vTask2, "Task2", STACK_DEPTH, NULL, 1, NULL, 1); // Create Task 2
-    if (result != pdPASS){
+    if (xTaskCreatePinnedToCore(vTask2, "Task2", STACK_DEPTH, NULL, 1, NULL, 1) != pdPASS){
         printf("Task2 not created");
         return;
     }
-      
 }
