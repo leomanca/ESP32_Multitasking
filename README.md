@@ -22,3 +22,8 @@ from the buffer of the first task
 - Use as little as possible global variables
   
 - Avoid threading issues
+
+### Solution:
+- The solution uses a queue consisting only of one element which is the size of the buffer itself
+- Task 1 (Producer) can only write to the queue, while Task 2 (Consumer) can only read from it. Since the queue can contain only one element, if the queue is filled, it can't be written again by Task 1, it must be first consumed by Task 2, this avoids threading issues while allowing at the same time to signal Task 2 with xQueueReceive() if the queue is filled. This approach uses only 1 global variable.
+- xQueueReceive() takes as parameter portMAX_DELAY, which allows the Task to be blocked until the queue is filled, allowing not to block CPU time.
