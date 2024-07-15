@@ -29,12 +29,14 @@
  *   Task 2 is signalled that it should retrieve the data from the queue when there's actual data inside of it.
  *   Due to its implementation, the queue gets automatically flushed when the data is read.
  *   Using a 1 element queue, the queue can't be written if full and can't be flushed if not full.
+ *   If the queue is full, it won't be written and the current buffer will be saved and sent in the next execution.
  *   This doesn't stop the execution of Task 1 in the meantime, that will still run until 1s has passed,
  *   while at the same time Task 2 will always wait for a "full signal" from the queue.
  *  
  *   In total, for every cycle of Task 1, there should be maximum 101 recorded intervals.
  *   This is because the time intervals are computed at: 
  *      0 + ∆t, 1 + ∆t, 2 + ∆t, ... , 99 + ∆t (notice how here 1s hasn't been reached), 100 + ∆t = 101 iterations.
+ *   If the period of 10ms of Task 1 is respected, then when i == 100 (101 iterations), 10ms * 100 = 1s will have passed.
  *   Thus, the buffer has been implemented circular so compensate this overflowing problem.
  *   Should delays happen, the recorded intervals will be less and the buffer will not "overflow".
  * 
@@ -42,6 +44,11 @@
  *      last_time: records the elapsed time from the previous cycle
  *      current_time: records the time at the start of the current cycle
  *      start_time_1s: tracks if 1s has passed, so that the queue can be filled
+ * 
+ * Alternative Solution:
+ *   Instead of having the overhead from the buffer copy in case not being sent, a binary semaphore could be introduced to directly
+ *   signal Task 2 to retrieve the value if sent. After Task 2 takes the semaphore, it should be passed back to Task 1 in case the data
+ *   is copied by Task 2.
  * 
  * Author: Leonardo Manca
  * Date: 14.07.2024
@@ -55,6 +62,7 @@
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "esp_timer.h"
+#include "string.h"
 
 #define STACK_DEPTH 4096
 #define TASK1_PERIOD_MS 10
@@ -78,17 +86,30 @@ void computeMaxMinAvg(int64_t raw_buffer[BUFFER_SIZE]){
     printf("max: %lld us    min: %lld us   avg: %.2f us\n", max, min, avg);
 }
 
+
 void vTask1(void* pvParameters){
-    int64_t current_time, last_time, buffer[BUFFER_SIZE] = {0};
+    int64_t current_time, last_time, copy_buffer[BUFFER_SIZE], buffer[BUFFER_SIZE] = {0};
     uint8_t i = 0, counter_sync = ITERATIONS_BEFORE_SYNC; //this sync counter is needed just to make sure that there are no discrepancies between start_clock and last_time
     TickType_t start_clock;
+    bool buffer_not_sent = false;
     start_clock = xTaskGetTickCount();
     while(1){
         current_time = esp_timer_get_time();
+        if(buffer_not_sent == true){
+            if(xQueueSend(queue, &copy_buffer, 0) == pdTRUE) // Reattemp to send the data
+                buffer_not_sent = false;
+        }
         if (i == BUFFER_SIZE){ //if i reaches 100, 10ms should have elapsed
             i = 0; // The buffer is implemented as circular, so it gets overwritten if 1s hasn't elapsed yet
-            xQueueSend(queue, &buffer, 0); // A queue copies all the element, so to save data, I'll just send the address of the buffer
-        }
+            if (xQueuePeek(queue, &buffer, 0) == pdTRUE){ // If this is true, the queue is not empty, thus I won't send the data
+                buffer_not_sent = true; //flag to acknowledge that the buffer has not been sent
+                memcpy(copy_buffer, buffer, sizeof(buffer)); // copy the current buffer on a copy buffer to send it again at the next cycle
+            }
+            else{
+                if(xQueueSend(queue, &buffer, 0) == pdTRUE) // A queue copies all the element, so to save data, I'll just send the address of the buffer
+                    buffer_not_sent = false;
+            }
+        }  
         if (counter_sync != 0)
             counter_sync -= 1;
         else
