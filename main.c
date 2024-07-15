@@ -95,7 +95,7 @@ void vTask1(void* pvParameters){
     start_clock = xTaskGetTickCount();
     while(1){
         current_time = esp_timer_get_time();
-        if(buffer_not_sent == true){
+        if((buffer_not_sent == true) && (xQueuePeek(queue, &buffer, 0) == pdFALSE)){ //if the buffer is empty and wasn't sent before, try to send it again
             if(xQueueSend(queue, &copy_buffer, 0) == pdTRUE) // Reattemp to send the data
                 buffer_not_sent = false;
         }
