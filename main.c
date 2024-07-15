@@ -57,9 +57,10 @@
 #include "esp_timer.h"
 
 #define STACK_DEPTH 4096
-#define TASK1_TICKS 10
+#define TASK1_PERIOD_MS 10
 #define BUFFER_SIZE 100
 #define ONE_SECOND_IN_US 1000000
+#define ITERATIONS_BEFORE_SYNC 2
 
 QueueHandle_t queue;
 
@@ -78,28 +79,22 @@ void computeMaxMinAvg(int64_t raw_buffer[BUFFER_SIZE]){
 }
 
 void vTask1(void* pvParameters){
-    int64_t current_time, last_time, start_time_1s;
-    int64_t buffer[BUFFER_SIZE] = {0};
-    uint8_t i = 0;
-    bool reset_1s_clock = true;
-    last_time = esp_timer_get_time(); // Records last_time to use it for computational purposes
-    vTaskDelay(TASK1_TICKS / portTICK_PERIOD_MS); // startup time as we need to record at least one last_time
+    int64_t current_time, last_time, buffer[BUFFER_SIZE] = {0};
+    uint8_t i = 0, counter_sync = ITERATIONS_BEFORE_SYNC; //this sync counter is needed just to make sure that there are no discrepancies between start_clock and last_time
+    TickType_t start_clock;
+    start_clock = xTaskGetTickCount();
     while(1){
         current_time = esp_timer_get_time();
-        if (reset_1s_clock == true){
-            reset_1s_clock = false;
-            start_time_1s = current_time; // Reset the 1s timer as the buffer has been sent
-        }
-        if (i == BUFFER_SIZE)
+        if (i == BUFFER_SIZE){ //if i reaches 100, 10ms should have elapsed
             i = 0; // The buffer is implemented as circular, so it gets overwritten if 1s hasn't elapsed yet
-        buffer[i++] = current_time - last_time;
-        if (current_time - start_time_1s >= ONE_SECOND_IN_US){ // Check if 1s has elapsed
             xQueueSend(queue, &buffer, 0); // A queue copies all the element, so to save data, I'll just send the address of the buffer
-            reset_1s_clock = true;
         }
+        if (counter_sync != 0)
+            counter_sync -= 1;
+        else
+            buffer[i++] = current_time - last_time;
         last_time = current_time;
-        vTaskDelay(TASK1_TICKS / portTICK_PERIOD_MS);
-
+        vTaskDelayUntil(&start_clock, pdMS_TO_TICKS(TASK1_PERIOD_MS));
     }
     vTaskDelete(NULL);
 }
